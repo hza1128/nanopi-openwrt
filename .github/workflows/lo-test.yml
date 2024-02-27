@@ -63,7 +63,7 @@ jobs:
           mkdir lede && sudo mount -o nossd,compress=zstd $LOOP_DEVICE lede
           if [ -d 'lede/.git' ]; then
           cd lede && rm -f zerospace && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action"
-          git fetch && git reset --hard origin/$BRANCH && git clean -df
+          git fetch && git reset --hard origin/HEAD && git clean -df
           else
           sudo chown $USER:$(id -gn) lede && git clone -b $BRANCH --single-branch https://github.com/coolsnowwolf/lede lede
           fi
@@ -71,13 +71,7 @@ jobs:
       - name: Update feeds and packages
         run: |
           cd ~/lede
-          rm -rf ./tmp && rm -rf ./feeds && rm -rf ./pacakges/feeds
-          if [ -d 'feeds' ]; then
-            pushd feeds/packages; git restore .; popd
-            pushd feeds/luci; git restore .; popd
-            pushd feeds/routing; git restore .; popd
-            pushd feeds/telephony; git restore .; popd
-          fi
+          rm -rf tmp feeds pacakges/feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           . $GITHUB_WORKSPACE/scripts/merge_packages.sh
@@ -125,9 +119,17 @@ jobs:
           ulimit -SHn 65000
           cd ~/lede
           while true; do make download -j && break || true; done
-          make -j$[`nproc`+1] IGNORE_ERRORS=1 tools/compile toolchain/compile buildinfo target/compile package/compile package/install target/install
-          if [ ! -e ~/lede/bin/targets/*/*/*imagebuilder*xz ]; then make IGNORE_ERRORS=1 V=sc; fi
+          [ `nproc` -gt 8 ] && con=$[`nproc`/2+3] || con=`nproc`
+          if [ -d build_dir ]; then
+            make -j$con IGNORE_ERRORS=1 tools/compile toolchain/compile buildinfo target/compile package/compile package/install target/install
+            if [ ! -e ~/lede/bin/targets/*/*/*imagebuilder*xz ]; then
+            df -h
+            make V=sc
+            fi
           mv `ls ~/lede/bin/targets/*/*/*imagebuilder*xz` ~/ib-$DEVICE.tar.xz
+          else
+            make -j$con IGNORE_ERRORS=1 tools/compile toolchain/compile
+          fi
 
           echo "======================="
           echo "Space usage:"
@@ -142,8 +144,7 @@ jobs:
           cd
           mkdir -p ./artifact/buildinfo
           cd lede
-          cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ../artifact/buildinfo/
-          cp -rf .config ../artifact/buildinfo/
+          cp -rf .config $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ../artifact/buildinfo/
           echo "strDate=$(TZ=UTC-8 date +%Y-%m-%d)" >> $GITHUB_ENV
           echo "strDevice=$(echo $DEVICE | awk '{print toupper($0)}')" >> $GITHUB_ENV
           cd ..
@@ -168,7 +169,8 @@ jobs:
         run: |
           cd
           sleep 60
-          sudo mount -o remount,compress=no,nodatacow,nodatasum lede
+          sudo umount lede
+          sudo mount -o compress=no,nodatacow,nodatasum $LOOP_DEVICE lede
           cd lede/; pv /dev/zero > zerospace || true; sync; rm -f zerospace; cd -
           sleep 60
           sudo umount lede

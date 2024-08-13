@@ -6,7 +6,7 @@ on:
     inputs:
       device:
         description: 'select device to build'
-        default: 'r6s'
+        default: 'r4se'
         required: false
       branch:
         description: 'seleclt openwrt branch'
